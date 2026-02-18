@@ -6,7 +6,7 @@ Scalable and undetectable REST API for scraping product details from Naver Smart
 
 ```bash
 pnpm install
-cp .env.example .env   # then edit .env with your proxy credentials
+cp .env.example .env   # then edit .env with your credentials
 pnpm build
 pnpm start
 ```
@@ -16,18 +16,18 @@ Swagger docs at `http://localhost:3000/api/docs`
 
 ## API Usage
 
-All responses follow a standardized format with `requestId` (UUID) for tracking.
+All endpoints are prefixed with `/api`. Responses follow a standardized format with `requestId` (UUID) for tracking.
 
 ### Scrape Product
 
 ```
-GET /naver?productUrl=https://smartstore.naver.com/{store}/products/{product_id}
+GET /api/naver?productUrl=https://smartstore.naver.com/{store}/products/{product_id}
 ```
 
 **Example:**
 
 ```bash
-curl "http://localhost:3000/naver?productUrl=https://smartstore.naver.com/paparecipe/products/5738498489"
+curl "http://localhost:3000/api/naver?productUrl=https://smartstore.naver.com/paparecipe/products/5738498489"
 ```
 
 **Success Response (200):**
@@ -41,8 +41,8 @@ curl "http://localhost:3000/naver?productUrl=https://smartstore.naver.com/papare
   "data": {
     "productId": "5738498489",
     "channelUid": "2sWDvWwemS4mOSxUcLvSR",
-    "details": { "raw Naver product JSON (full structure)" : "..." },
-    "benefits": { "raw Naver benefits JSON (full structure)" : "..." },
+    "details": { "..." : "raw Naver product JSON" },
+    "benefits": { "..." : "raw Naver benefits JSON" },
     "scrapedAt": "2026-02-10T12:00:00.000Z"
   },
   "timestamp": "2026-02-10T12:00:00.000Z"
@@ -50,17 +50,6 @@ curl "http://localhost:3000/naver?productUrl=https://smartstore.naver.com/papare
 ```
 
 **Error Responses:**
-
-```json
-{
-  "requestId": "cf140cf9-2a43-4889-9bf7-c15678976ef0",
-  "status": 400,
-  "code": "BAD_REQUEST",
-  "message": "productUrl must be a valid Naver SmartStore URL (https://smartstore.naver.com/{store}/products/{id})",
-  "data": null,
-  "timestamp": "2026-02-10T06:19:48.356Z"
-}
-```
 
 | Status | Code | When |
 |--------|------|------|
@@ -74,18 +63,7 @@ curl "http://localhost:3000/naver?productUrl=https://smartstore.naver.com/papare
 ### Health Check
 
 ```bash
-curl http://localhost:3000/health
-```
-
-```json
-{
-  "requestId": "5ef90790-e735-4bfd-b045-48d76821c5e5",
-  "status": 200,
-  "code": "SUCCESS",
-  "message": "OK",
-  "data": { "status": "ok" },
-  "timestamp": "2026-02-10T06:19:53.964Z"
-}
+curl http://localhost:3000/api/health
 ```
 
 ## Response Format
@@ -96,7 +74,7 @@ Every API response uses a consistent structure:
 {
   requestId: string;   // UUID v4 for tracking
   status: number;      // HTTP status code
-  code: string;        // Machine-readable code (SUCCESS, BAD_REQUEST, SCRAPING_FAILED, etc.)
+  code: string;        // Machine-readable code (SUCCESS, BAD_REQUEST, etc.)
   message: string;     // Human-readable message
   data: T | null;      // Response payload (null on error)
   timestamp: string;   // ISO 8601 timestamp
@@ -123,8 +101,9 @@ Both endpoints return raw JSON from Naver (no field mapping/transformation).
 
 ## Anti-Detection Strategies
 
-- **IP Rotation:** Proxy support via configurable `PROXY_URL` in `.env`
-- **Fingerprint Rotation:** Random User-Agent, Accept-Language, and browser headers per request
+- **IP Rotation:** Proxy support via configurable host/port/credentials in `.env`
+- **Fingerprint Rotation:** Browser fingerprint generation via `fingerprint-generator` + `fingerprint-injector`
+- **Playwright Fallback:** Headless browser scraping via `patchright` (Playwright fork)
 - **Request Throttling:** Bottleneck limiter (5 concurrent, 200ms min interval)
 - **Random Delays:** 500ms-2000ms random delay between requests
 - **Retry Logic:** Auto-retry up to 3 times on failure
@@ -132,16 +111,22 @@ Both endpoints return raw JSON from Naver (no field mapping/transformation).
 
 ## Environment Variables
 
-All configuration is driven by `.env` — no hardcoded values in source code. Copy `.env.example` to `.env` and fill in your credentials.
+Copy `.env.example` to `.env` and fill in your credentials.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
 | `NODE_ENV` | `development` | Environment mode |
-| `PROXY_URL` | - | Proxy in `host:port:user:pass` format |
+| `PROXY_HOST` | - | Proxy hostname |
+| `PROXY_PORT` | - | Proxy port |
+| `PROXY_USERNAME` | - | Proxy auth username |
+| `PROXY_PASSWORD` | - | Proxy auth password |
 | `NAVER_BASE_URL` | `https://smartstore.naver.com` | Naver SmartStore base URL |
 | `NAVER_API_BASE_URL` | `https://smartstore.naver.com/i/v2` | Naver internal API base URL |
 | `NAVER_BENEFITS_PATH` | `/benefits/by-product` | Naver benefits API path |
+| `NAVER_CLIENT_ID` | - | Naver API client ID |
+| `NAVER_CLIENT_SECRET` | - | Naver API client secret |
+| `NAVER_BYPASS_COOKIE` | - | x-wtm-cpt-tk cookie for bypass |
 | `SCRAPING_MAX_RETRIES` | `3` | Max retry attempts per request |
 | `SCRAPING_TIMEOUT_MS` | `30000` | HTTP request timeout in ms |
 | `SCRAPING_MIN_DELAY_MS` | `500` | Min random delay between requests |
@@ -152,8 +137,6 @@ All configuration is driven by `.env` — no hardcoded values in source code. Co
 | `THROTTLER_TTL_MS` | `60000` | Rate limit window in ms |
 | `THROTTLER_LIMIT` | `100` | Max requests per rate limit window |
 
-If `PROXY_URL` is set, all requests go through the proxy. Otherwise, requests are made directly.
-
 ## Expose via Ngrok
 
 ```bash
@@ -163,7 +146,7 @@ ngrok http 3000
 
 Share the ngrok URL for remote testing:
 ```
-GET https://<ngrok-url>/naver?productUrl=https://smartstore.naver.com/paparecipe/products/5738498489
+GET https://<ngrok-url>/api/naver?productUrl=https://smartstore.naver.com/paparecipe/products/5738498489
 ```
 
 ## Scripts
@@ -175,6 +158,7 @@ GET https://<ngrok-url>/naver?productUrl=https://smartstore.naver.com/paparecipe
 | `pnpm start` | Start production server |
 | `pnpm build` | Build for production |
 | `pnpm test` | Run unit tests |
+| `pnpm test:cov` | Run tests with coverage |
 | `pnpm lint` | Lint and fix code |
 
 ## Tech Stack
@@ -182,14 +166,16 @@ GET https://<ngrok-url>/naver?productUrl=https://smartstore.naver.com/paparecipe
 | Package | Purpose |
 |---------|---------|
 | NestJS + Fastify | Framework + HTTP adapter |
-| TypeScript | Type-safe development |
+| TypeScript (ES2023, strict) | Type-safe development |
 | Axios | HTTP client with proxy support |
+| Patchright | Playwright-based headless browser scraping |
+| Fingerprint Generator/Injector | Browser fingerprint rotation |
 | Bottleneck | Outbound request throttling |
 | @nestjs/throttler | Inbound API rate limiting (100 req/min) |
-| user-agents | Browser fingerprint generation |
 | class-validator | DTO validation |
 | @nestjs/swagger | API documentation |
 | @nestjs/terminus | Health checks |
+| Jest | Unit testing (85% branch, 100% line coverage) |
 
 ## Architecture
 
@@ -203,7 +189,7 @@ src/
     shared/          # Exceptions, utilities, response builder
   infrastructure/
     http/            # Controllers, interceptors, filters
-    scraping/        # HTTP adapters, scraping strategies, factory
+    scraping/        # HTTP adapters (Axios, Playwright), strategies, factory
     proxy/           # Proxy rotation, fingerprint rotation
     cache/           # In-memory cache adapter
     config/          # App configuration
