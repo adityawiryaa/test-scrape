@@ -1,0 +1,12 @@
+services:
+  app-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.target
+    container_name: ansible-target
+    hostname: app-server
+    ports:
+      - "2222:22"
+      - "3000:3000"
+    privileged: true
+    command: /usr/sbin/sshd -D

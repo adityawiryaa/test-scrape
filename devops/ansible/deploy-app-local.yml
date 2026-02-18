@@ -1,0 +1,118 @@
+---
+- name: Deploy Application with PM2 (Local Test)
+  hosts: app_servers
+  become: true
+  become_user: deploy
+
+  tasks:
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create package.json
+      copy:
+        dest: "{{ app_dir }}/package.json"
+        content: |
+          {
+            "name": "devops-app",
+            "version": "1.0.0",
+            "main": "app.js",
+            "scripts": {
+              "start": "node app.js"
+            },
+            "dependencies": {
+              "express": "^4.18.2"
+            }
+          }
+
+    - name: Create app.js
+      copy:
+        dest: "{{ app_dir }}/app.js"
+        content: |
+          const express = require('express');
+          const app = express();
+          const PORT = process.env.PORT || 3000;
+
+          app.get('/', (req, res) => {
+            res.json({
+              status: 'success',
+              message: 'DevOps App via Ansible + PM2',
+              hostname: require('os').hostname()
+            });
+          });
+
+          app.get('/health', (req, res) => {
+            res.json({ status: 'healthy', uptime: process.uptime() });
+          });
+
+          app.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server running on port ${PORT}`);
+          });
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        mode: '0755'
+
+    - name: Install dependencies
+      npm:
+        path: "{{ app_dir }}"
+        state: present
+
+    - name: Create PM2 ecosystem file
+      copy:
+        dest: "{{ app_dir }}/ecosystem.config.js"
+        content: |
+          module.exports = {
+            apps: [{
+              name: '{{ app_name }}',
+              script: './app.js',
+              instances: {{ pm2_instances }},
+              exec_mode: 'cluster',
+              env: {
+                NODE_ENV: 'production',
+                PORT: {{ app_port }}
+              },
+              error_file: './logs/err.log',
+              out_file: './logs/out.log',
+              merge_logs: true,
+              autorestart: true
+            }]
+          };
+
+    - name: Stop existing PM2 process
+      shell: pm2 delete {{ app_name }} || true
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Start application with PM2
+      shell: pm2 start ecosystem.config.js
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Save PM2 process list
+      shell: pm2 save
+
+    - name: Display PM2 status
+      shell: pm2 list
+      register: pm2_status
+
+    - name: Show PM2 status
+      debug:
+        var: pm2_status.stdout_lines
+
+    - name: Wait for app to be ready
+      uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 5
+      delay: 2
+
+    - name: Show health check result
+      debug:
+        msg: "App is healthy: {{ health_check.json }}"

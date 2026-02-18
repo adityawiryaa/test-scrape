@@ -1,0 +1,80 @@
+---
+- name: Setup Node.js and PM2 Runtime
+  hosts: app_servers
+  become: true
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install system dependencies
+      apt:
+        name:
+          - curl
+          - git
+          - build-essential
+          - ca-certificates
+          - gnupg
+        state: present
+
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download NodeSource GPG key
+      shell: |
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+      args:
+        creates: /etc/apt/keyrings/nodesource.gpg
+
+    - name: Add NodeSource repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main"
+        state: present
+        filename: nodesource
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+        state: present
+
+    - name: Setup PM2 startup script
+      shell: pm2 startup systemd -u {{ ansible_user }} --hp /home/{{ ansible_user }} | tail -1 | bash
+      args:
+        creates: /etc/systemd/system/pm2-{{ ansible_user }}.service
+      ignore_errors: yes
+
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Verify Node.js installation
+      command: node --version
+      register: node_version_output
+      changed_when: false
+
+    - name: Verify PM2 installation
+      command: pm2 --version
+      register: pm2_version_output
+      changed_when: false
+
+    - name: Display versions
+      debug:
+        msg:
+          - "Node.js version: {{ node_version_output.stdout }}"
+          - "PM2 version: {{ pm2_version_output.stdout }}"

@@ -1,0 +1,89 @@
+---
+- name: Deploy Application with PM2
+  hosts: app_servers
+  become: false
+
+  tasks:
+    - name: Check if repository exists
+      stat:
+        path: "{{ app_dir }}/.git"
+      register: git_repo
+
+    - name: Clone repository
+      git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: "{{ app_branch }}"
+        force: yes
+      when: not git_repo.stat.exists
+
+    - name: Pull latest changes
+      git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: "{{ app_branch }}"
+        update: yes
+        force: yes
+      when: git_repo.stat.exists
+
+    - name: Install dependencies
+      npm:
+        path: "{{ app_dir }}"
+        state: present
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        mode: '0755'
+
+    - name: Install pm2-logrotate
+      command: pm2 install pm2-logrotate
+      changed_when: false
+
+    - name: Configure pm2-logrotate max size
+      command: pm2 set pm2-logrotate:max_size 50M
+      changed_when: false
+
+    - name: Configure pm2-logrotate retain
+      command: pm2 set pm2-logrotate:retain 7
+      changed_when: false
+
+    - name: Configure pm2-logrotate compress
+      command: pm2 set pm2-logrotate:compress true
+      changed_when: false
+
+    - name: Stop existing PM2 process
+      command: pm2 delete {{ app_name }}
+      args:
+        chdir: "{{ app_dir }}"
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Start application with PM2
+      command: pm2 start ecosystem.config.js
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Save PM2 process list
+      command: pm2 save
+      changed_when: false
+
+    - name: Display PM2 status
+      command: pm2 list
+      register: pm2_status
+      changed_when: false
+
+    - name: Show PM2 status
+      debug:
+        var: pm2_status.stdout_lines
+
+    - name: Wait for application to be ready
+      uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+        timeout: 30
+      register: health_check
+      until: health_check.status == 200
+      retries: 10
+      delay: 3

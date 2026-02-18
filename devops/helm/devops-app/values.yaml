@@ -1,0 +1,46 @@
+replicaCount: 3
+
+image:
+  repository: devops-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: NodePort
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: false
+  className: nginx
+  host: devops-app.local
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilization: 70
+  targetMemoryUtilization: 80
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+env:
+  NODE_ENV: production
+  PORT: "3000"
+
+healthCheck:
+  path: /health
+  port: 3000
+  livenessInitialDelay: 15
+  readinessInitialDelay: 5
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
