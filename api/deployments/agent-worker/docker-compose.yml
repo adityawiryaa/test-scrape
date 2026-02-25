@@ -1,0 +1,35 @@
+services:
+  agent:
+    build:
+      context: ../..
+      dockerfile: deployments/agent-worker/Dockerfile.agent
+    environment:
+      - AGENT_HOSTNAME=agent-01
+      - AGENT_IP=agent
+      - AGENT_PORT=8081
+      - CONTROLLER_URL=http://controller:6001
+      - WORKER_URL=http://worker:6002
+      - API_KEY=${API_KEY:-default-api-key}
+      - POLL_INTERVAL_SECONDS=30
+      - REQUEST_TIMEOUT_SECONDS=10
+    depends_on:
+      - worker
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deployments/agent-worker/Dockerfile.worker
+    ports:
+      - "6002:6002"
+    environment:
+      - WORKER_PORT=6002
+      - API_KEY=${API_KEY:-default-api-key}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - ASYNQ_DB=${ASYNQ_DB:-1}
+
+networks:
+  default:
+    name: api
+    external: true

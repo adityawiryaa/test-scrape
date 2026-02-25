@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      containers:
+        - name: controller
+          image: api/controller:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6001
+          envFrom:
+            - configMapRef:
+                name: api
+            - secretRef:
+                name: api
+          volumeMounts:
+            - name: controller-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /config
+              port: 6001
+              httpHeaders:
+                - name: X-API-Key
+                  value: default-api-key
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /config
+              port: 6001
+              httpHeaders:
+                - name: X-API-Key
+                  value: default-api-key
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: controller-data
+          persistentVolumeClaim:
+            claimName: controller-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: controller
+  namespace: api
+spec:
+  selector:
+    app: controller
+  ports:
+    - port: 6001
+      targetPort: 6001
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: controller-data
+  namespace: api
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

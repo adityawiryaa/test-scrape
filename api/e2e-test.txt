@@ -1,0 +1,152 @@
+SETUP
+======
+Build all binaries:
+  make build
+
+Start services (3 terminals):
+
+  Terminal 1 - Controller (port 6001):
+    make run-controller
+
+  Terminal 2 - Worker (port 6002):
+    make run-worker
+
+  Terminal 3 - Agent (auto registers + polls):
+    make run-agent
+
+Or run all at once:
+  make run-all
+
+
+COMMANDS
+====================================
+
+1. Register Agent
+curl -s -X POST http://localhost:6001/register \
+  -H "X-API-Key: default-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"hostname":"test-agent","ip_address":"127.0.0.1","port":8081}'
+
+Response: {"success":true,"data":{"agent_id":"<uuid>","status":"active","poll_url":"/config","poll_interval_seconds":30}}
+
+
+2. Push Config to Controller
+curl -s -X POST http://localhost:6001/config \
+  -H "X-API-Key: default-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}'
+
+Response: {"success":true,"data":{"id":"<uuid>","version":1,"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}}
+
+
+3. Get Latest Config from Controller
+curl -s http://localhost:6001/config \
+  -H "X-API-Key: default-api-key"
+
+Response: {"success":true,"data":{"version":1,"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}}
+
+
+4. Check Worker Config (wait ~30s for agent to poll and forward)
+curl -s http://localhost:6002/config
+
+Response: {"success":true,"data":{"version":1,"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}}
+
+Note: If you don't want to wait for agent polling, push config directly to worker:
+curl -s -X POST http://localhost:6002/config \
+  -H "Content-Type: application/json" \
+  -d '{"version":1,"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}'
+
+
+5. Enqueue Hit (async)
+curl -s http://localhost:6002/hit
+
+Response (HTTP 202):
+{"success":true,"data":{"task_id":"<uuid>","status":"queued"}}
+
+Note: Save the task_id from response for step 6.
+
+
+6. Get Hit Result (wait 1-2 seconds for processing)
+curl -s http://localhost:6002/hit/<task_id_from_step_5>
+
+Response (completed):
+{"success":true,"data":{"task_id":"<uuid>","status":"completed","status_code":200,"body":"{...}"}}
+
+Response (still processing):
+{"success":true,"data":{"task_id":"<uuid>","status":"pending"}}
+
+Response (failed):
+{"success":true,"data":{"task_id":"<uuid>","status":"failed","error":"connection refused"}}
+
+
+7. Update Config (version auto-increments)
+curl -s -X POST http://localhost:6001/config \
+  -H "X-API-Key: default-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"url":"https://ip.me"},"poll_interval_seconds":5}'
+
+Response: {"success":true,"data":{"version":2,...}}
+
+
+8. Auth Failure Test (no API key)
+curl -s http://localhost:6001/config
+
+Response: {"success":false,"error":{"message":"missing API key"}}
+
+
+9. Auth Failure Test (wrong API key)
+curl -s http://localhost:6001/config \
+  -H "X-API-Key: wrong-key"
+
+Response: {"success":false,"error":{"message":"invalid API key"}}
+
+
+10. Full Async Flow (scripted)
+# Push config -> enqueue hit -> poll result
+curl -s -X POST http://localhost:6002/config \
+  -H "Content-Type: application/json" \
+  -d '{"version":1,"data":{"url":"https://httpbin.org/get"},"poll_interval_seconds":10}'
+
+TASK_ID=$(curl -s http://localhost:6002/hit | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['task_id'])")
+echo "Task ID: $TASK_ID"
+
+sleep 2
+
+curl -s http://localhost:6002/hit/$TASK_ID
+
+
+WORKER LOGS TO EXPECT
+======================
+When running the worker, you should see these log prefixes:
+
+[init]      -> Config loading, redis connection details
+[http]      -> HTTP server start
+[asynq]     -> Asynq background worker start
+[queue]     -> Queue client redis connection
+[config]    -> Config received from agent
+[enqueue]   -> Task creation and enqueue
+[processor] -> Task pickup, execution, result storage
+[shutdown]  -> Graceful shutdown sequence
+
+
+FLOW SUMMARY
+=============
+1. Controller stores config in SQLite (port 6001)
+2. Agent polls Controller every 30s (or poll_interval_seconds from config)
+3. Agent forwards new config to Worker
+4. Worker stores config in memory (port 6002)
+5. User hits GET /hit on Worker -> task enqueued to Redis -> returns {task_id, status: "queued"} (202)
+6. Asynq worker picks up task -> executes HTTP GET to configured URL -> stores result in Redis (1h TTL)
+7. User hits GET /hit/:taskId -> reads result from Redis -> returns result
+
+
+REDIS INSPECTION (optional)
+=============================
+# Check asynq queue (DB 1)
+docker exec <redis-container> redis-cli -n 1 KEYS '*'
+
+# Check result store (DB 0)
+docker exec <redis-container> redis-cli -n 0 KEYS 'worker:hit:result:*'
+
+# Read a specific result
+docker exec <redis-container> redis-cli -n 0 GET 'worker:hit:result:<task_id>'

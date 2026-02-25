@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api
+  namespace: api
+data:
+  CONTROLLER_PORT: "6001"
+  CONTROLLER_DB_PATH: "/data/controller.db"
+  WORKER_PORT: "6002"
+  AGENT_HOSTNAME: "agent-01"
+  AGENT_IP: "agent"
+  AGENT_PORT: "8081"
+  CONTROLLER_URL: "http://controller:6001"
+  WORKER_URL: "http://worker:6002"
+  POLL_INTERVAL_SECONDS: "30"
+  REQUEST_TIMEOUT_SECONDS: "10"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  ASYNQ_DB: "1"

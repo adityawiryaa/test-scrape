@@ -1,0 +1,21 @@
+services:
+  controller:
+    build:
+      context: ../..
+      dockerfile: deployments/controller/Dockerfile
+    ports:
+      - "6001:6001"
+    environment:
+      - CONTROLLER_PORT=6001
+      - CONTROLLER_DB_PATH=/data/controller.db
+      - API_KEY=${API_KEY:-default-api-key}
+    volumes:
+      - controller-data:/data
+
+volumes:
+  controller-data:
+
+networks:
+  default:
+    name: api
+    external: true

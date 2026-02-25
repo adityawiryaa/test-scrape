@@ -1,0 +1,13 @@
+bin/
+controller.db
+.env
+.env.local
+.env*.local
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+docs/
